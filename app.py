@@ -1,7 +1,6 @@
-from flask import Flask, redirect, url_for, render_template, request, session, flash, jsonify
+from flask import Flask, redirect, url_for, render_template, request, session, flash
 from datetime import timedelta, datetime
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
 
@@ -15,23 +14,21 @@ app.permanent_session_lifetime = timedelta(minutes=5)
 
 db = SQLAlchemy(app)
 
+
 class users(db.Model):
     ''' Таблица пользователей '''
     _id = db.Column("id", db.Integer, primary_key=True)
     name = db.Column(db.String(100))
     email = db.Column(db.String(100))
-    password = db.Column(db.String(200))
+    password = db.Column(db.String(200))  # Храним пароли в открытом виде
     role = db.Column(db.String(15), default="user")
 
     def __init__(self, name, email, password, role):
         self.name = name
         self.email = email
-        self.password = generate_password_hash(password)
+        self.password = password
         self.role = role
 
-    def check_password(self, password):
-        ''' Проверка пароля '''
-        return check_password_hash(self.password, password)
 
 class Post(db.Model):
     ''' Таблица для хранения записей пользователей '''
@@ -48,7 +45,6 @@ class Post(db.Model):
 
 
 with app.app_context():
-    ''' Инициализация базы данных '''
     db.create_all()
 
     admin_name = os.getenv("ADMIN")
@@ -59,6 +55,10 @@ with app.app_context():
     if not admin_user:
         admin_user = users(name=admin_name, email=admin_email, password=admin_password, role="admin")
         db.session.add(admin_user)
+        db.session.commit()
+
+        flag_post = Post(content="practice{this_is_the_flag}", user_id=admin_user._id)
+        db.session.add(flag_post)
         db.session.commit()
 
 
@@ -92,23 +92,38 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    """Эндпоинт для авторизации"""
+    """Эндпоинт для авторизации с SQL-инъекцией"""
     if request.method == "POST":
         user = request.form["nm"]
         password = request.form["password"]
-        found_user = users.query.filter_by(name=user).first()
 
-        if found_user and found_user.check_password(password):
+        # Уязвимый SQL-запрос (инъекция возможна)
+        query = f"SELECT * FROM users WHERE name = '{user}' AND password = '{password}'"
+
+        # Открываем "сырой" коннект к БД
+        conn = db.engine.raw_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute(query)
+            result = cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+
+        if result:
             session.permanent = True
-            session['user'] = user
+            session['user'] = result[1]  # result[1] = name
+            session['role'] = result[4]  # result[4] = role
             flash("Login successful!")
-            return redirect(url_for("home"))  # Перенаправление на домашнюю страницу
-        else:
-            flash("Invalid username or password")
-            return redirect(url_for("login"))
+            return redirect(url_for("home"))
 
-    # Если метод GET, просто отображаем страницу логина
+        flash("Invalid username or password")
+        return redirect(url_for("login"))
+
     return render_template("login.html")
+
+
 
 
 @app.route("/text", methods=["POST", "GET"])
