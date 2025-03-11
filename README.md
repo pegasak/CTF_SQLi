@@ -46,7 +46,7 @@
 ### Как это работает?
 1. Приложение выполняет следующий небезопасный SQL-запрос при входе пользователя:
     ```sql
-        SELECT * FROM users WHERE username = 'введённый_логин' AND password = 'введённый_пароль';
+   SELECT * FROM users WHERE username = 'введённый_логин' AND password = 'введённый_пароль';
 2. Если мы введём Kirill' -- в поле логина, запрос примет следующий вид:
     ```sql
     SELECT * FROM users WHERE username = 'admin' -- ' AND password = '123';
